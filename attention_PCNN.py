@@ -17,13 +17,9 @@ from dataset import collate_fn
 import numpy as np
 
 root = '/data/yanjianhao/nlp/torch/torch_NRE/data/'
-datasets = Dataset(root)
 
 # maybe a bag at a time
 batch_size = 160
-
-loader = data.DataLoader(datasets, batch_size=batch_size, shuffle=True, pin_memory=True, collate_fn=collate_fn)
-word_embed = datasets.vecs
 trigger = 0
 
 
@@ -52,6 +48,7 @@ class PCNN_attention(nn.Module):
         if pre_word_embeds is not None:
             self.pre_word_embed = True
             self.word_embed.weight = nn.Parameter(torch.FloatTensor(pre_word_embeds), requires_grad=True)
+
         else:
             self.pre_word_embed = False
 
@@ -70,7 +67,8 @@ class PCNN_attention(nn.Module):
         # only use for debugging
         self.grad_list = []
         self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(p=0.5)
+        self.tanh = nn.Tanh()
+        self.dropout = nn.Dropout(p=0.5, inplace=True)
 
 
     def _create_position_embed(self, sent_len, pos1, pos2):
@@ -115,9 +113,9 @@ class PCNN_attention(nn.Module):
         max_len = self.max_len
 
         # weird..
-        if labels is not None:
-            labels_lookup = ag.Variable(labels.cuda())
-            r_embeds = self.r_embed(labels_lookup)
+        # if labels is not None:
+        labels_lookup = ag.Variable(labels.cuda())
+        # r_embeds = self.r_embed(labels_lookup)
 
         batch_features = []
         for ix, bag in enumerate(x):
@@ -131,12 +129,10 @@ class PCNN_attention(nn.Module):
                 sent = item[2]
                 sent_len = len(sent) if len(sent) < max_len else max_len
 
-                try:
-                    # Here we need to limit the length of one sentence
-                    lookup_tensor = ag.Variable(torch.LongTensor(sent[:max_len]).cuda())
-                    feature = self.word_embed(lookup_tensor)
-                except:
-                    pdb.set_trace()
+                # Here we need to limit the length of one sentence
+                lookup_tensor = ag.Variable(torch.LongTensor(sent[:max_len]).cuda())
+                feature = self.word_embed(lookup_tensor)
+
                 # pdb.set_trace()
                 if pe:
                     pf = self._create_position_embed(sent_len, pos1, pos2)
@@ -156,44 +152,32 @@ class PCNN_attention(nn.Module):
             features = torch.cat(features, dim=0)
             # fix dims for features
             # pdb.set_trace()
-            features = self.relu(self.conv(features).squeeze(3))
+            # features = self.relu(self.conv(features).squeeze(3))
+            features = self.tanh(self.conv(features).squeeze(3))
             # no padding in conv
             features = F.max_pool1d(features, max_len - 2).squeeze(2)
-            batch_features.append(features)
-
-            if labels is None:
-                # alpha_i,j
-                # shape : bag_size * n_rel
-                atten_weights = self.atten_sm(torch.matmul(pooled, self.r_embed.t()))
-
-                # s_i,j
-                # shape : n_rel * out_c
-                s = torch.matmul(atten_weights.t(), pooled)
-                # prediction
-                # from n_rel * out_c -> n_rel * 1
-                s = self.linear(s).squeeze()
 
             # alternative way
             # only use prediction label.
             # maybe there's intersection for relations so that each relation got a probability
-            else:
-                r = r_embeds[ix]
-                # 1 * bag_size
-                pdb.set_trace()
-                atten_weights = self.atten_sm(torch.matmul(features, r).view(1, -1))
-                features = torch.matmul(atten_weights, features)
-                if self.dropout is not None:
-                    features = self.dropout(features)
-                features = self.linear(features)
 
-        # atten_weights = self.atten_sm(torch.bmm(features, r_embeds))
-        # features = torch.bmm(atten_weights, features)
-        # if self.dropout is not None:
-        #     features = self.dropout(features)
-        #     features = self.linear(features)
-        batch_features.append(features)
+            # bag_size * n_rel
+            # for each relation
+            # pdb.set_trace()
+            atten_weights = self.atten_sm(torch.matmul(self.r_embed.weight, features.t()))
+            # pdb.set_trace()
+            features = torch.matmul(atten_weights, features)
+            if self.dropout is not None:
+                features = self.dropout(features)
+            # features = self.linear(features)
+            features = torch.matmul(features, self.r_embed.weight.t()).diag()
+            # if features.size()[0] != 1:
+            #     print(ix)
+            # pdb.set_trace()
+            batch_features.append(features)
 
-        return torch.cat(batch_features, dim=0)
+        # pdb.set_trace()
+        return torch.stack(batch_features)
 
 
 def one_hot(ids, n_rel):
@@ -218,6 +202,9 @@ def clip(x, above, below):
 
 
 def train():
+    datasets = Dataset(root)
+    loader = data.DataLoader(datasets, batch_size=batch_size, shuffle=True, pin_memory=True, collate_fn=collate_fn)
+    word_embed = datasets.vecs
     model = PCNN_attention(pre_word_embeds=word_embed)
     if torch.cuda.is_available():
         model = model.cuda()
@@ -225,7 +212,10 @@ def train():
     loss_func = nn.NLLLoss()
     # optimizer = optim.Adam(model.parameters(), lr=1e-2)
     optimizer = optim.SGD(model.parameters(), lr=1e-2)
-    n_epoches = 1
+    # Turn off the updates for word_embeddings
+    # optimizer = optim.SGD(iter([module[1] for module in model.named_parameters()
+    #                             if module[0] != "word_embed.weight"]), lr=1e-2)
+    n_epoches = 25
 
     for i in range(n_epoches):
         print("For epoch %d:"%i)
@@ -238,7 +228,7 @@ def train():
             # if batch_ix == 431:
             #     pdb.set_trace()
             out = model(bags, datasets.max_sent_len, labels=labels)
-            pdb.set_trace()
+            # pdb.set_trace()
 
             # compute negative likelihood loss
             labels = ag.Variable(labels.cuda())
@@ -259,11 +249,14 @@ def train():
 
 
 def test(PATH):
+    test_data = Dataset(root, train_test='test')
+    test_loader = data.DataLoader(test_data, batch_size=batch_size, shuffle=False, pin_memory=True, collate_fn=collate_fn)
+    word_embed = test_data.vecs
     model = PCNN_attention(pre_word_embeds=word_embed)
     model.load_state_dict(torch.load(PATH))
     model.cuda()
-    test_data = Dataset(root, train_test='test')
-    test_loader = data.DataLoader(test_data, batch_size=batch_size, shuffle=True, pin_memory=True, collate_fn=collate_fn)
+    # in test, the r embed need to amplify with the p of dropout
+    model.r_embed.weight = nn.Parameter(model.r_embed.weight.data / model.dropout.p)
     model.eval()
 
     prec = []
@@ -292,15 +285,15 @@ def test(PATH):
     y_pred = np.concatenate(outs, axis=0)
     y_true = np.concatenate(y_true, axis=0)
 
-    np.save('./result/labels_max_len.npy', y_true)
-    np.save("./result/prediction_max_len.npy", y_pred)
+    np.save('./result/labels_word_embed_keep.npy', y_true)
+    np.save("./result/prediction_word_embed_keep.npy", y_pred)
 
 
     # pdb.set_trace()
 
 
 if __name__ == "__main__":
-    # train()
+    train()
     path = "/data/yanjianhao/nlp/torch/torch_NRE/model/att+cnn.dat"
     test(path)
 

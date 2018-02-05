@@ -24,6 +24,7 @@ def preprocess(file_path, w_to_ix):
     rel_to_ix = defaultdict(set_default)
     dict = defaultdict(list)
     en_to_rel = defaultdict(set_default)
+    dict_text = defaultdict(list)
     # set NA
     rel_to_ix['NA'] = 0
 
@@ -73,6 +74,7 @@ def preprocess(file_path, w_to_ix):
                 break
 
         # sent = " ".join(tmp)
+        dict_text[(en1, en2)].append(" ".join(tmp))
         tmp = [w_to_ix[word] if w_to_ix[word] else w_to_ix['UNK'] for word in tmp]
         dict[(en1, en2)].append((en1_pos, en2_pos, tmp))
     # save intermediate results
@@ -82,7 +84,7 @@ def preprocess(file_path, w_to_ix):
             lines.append(str(key) + " " + str(value) + "\n")
         f.writelines(lines)
 
-    return dict, en_to_rel, rel_to_ix, max_len
+    return dict, en_to_rel, rel_to_ix, max_len, dict_text
 
 
 # w2v --->   word : ndarray
@@ -123,7 +125,7 @@ class Dataset(data.Dataset):
         self.w_to_ix, self.vecs = read_in_vec(os.path.join(root, vec_name))
         assert len(self.w_to_ix) == self.vecs.shape[0]
         # dict : [(en1_pos, en2_pos, [word,]),]
-        self.dict, self.en_to_rel, self.rel_to_ix, self.max_sent_len = preprocess(os.path.join(root, file_name), self.w_to_ix)
+        self.dict, self.en_to_rel, self.rel_to_ix, self.max_sent_len, self.dict_text = preprocess(os.path.join(root, file_name), self.w_to_ix)
         self.key_list = list(self.dict.keys())
         self.vocab_size = self.vecs.shape[0]
         # self.n_rel = len(self.rel_to_ix)
@@ -144,6 +146,7 @@ class Dataset(data.Dataset):
         en_pair = self.key_list[index]
         bag = self.dict[en_pair]
         target = self.en_to_rel[en_pair]
+        # print(en_pair)
         if target == None:
             pdb.set_trace()
         return bag, target
@@ -165,6 +168,10 @@ def collate_fn(data):
     bags = [item[0] for item in data]
 
     return bags, labels
+
+
+def collate_fn_temporal(data):
+    return
 
 
 

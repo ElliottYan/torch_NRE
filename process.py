@@ -5,7 +5,7 @@ from collections import defaultdict
 from structures import time_signature, Stack, Mention
 import random, math
 import pdb
-import spacy
+import spacy, re
 from spacy.symbols import ORTH, LEMMA, POS
 
 
@@ -26,7 +26,7 @@ def clean(row):
     elif len(row) < 20:
         return 'NaN'
     else:
-        return row[:10]
+        return row.split('T')[0]
 
 
 def check_relation(label, x):
@@ -52,11 +52,17 @@ def check_relation(label, x):
         else:
             if node.type == 'end' and stack.peek().relation == 'NA' and node.relation != 'NA':
                 stack.push(time_signature('0000-00-00', relation=node.relation))
-            return stack.peek().relation
+            try:
+                rel = stack.peek().relation
+            except:
+                pdb.set_trace()
+                return None
+            return rel
 
 
 def create_labels():
     with open(data_root + "alignment.dat", 'rb') as f:
+        # align is the map from wiki-data to wiki-pedia
         align = pickle.load(f)
 
     entities_pair = pd.read_csv(data_root + "origin_data/entities.csv")
@@ -68,8 +74,8 @@ def create_labels():
     labels = defaultdict(list)
     for ix, row in formal_entities_pair.iterrows():
         row = row
-        en1 = row['entity1Label']
-        en2 = row['entity2Label']
+        en1 = align[row['entity1']]
+        en2 = align[row['entity2']]
         rel = row['relation_name']
         if labels[(en2, en1)] is not None:
             # exchange en1 & en2
@@ -84,6 +90,8 @@ def create_labels():
             labels[(en1, en2)].append(time_signature(row['start_time'], relation=rel, node_type='start'))
         if row['end_time'] != 'NaN':
             labels[(en1, en2)].append(time_signature(row['end_time'], relation=rel, node_type='end'))
+    for _,item in labels.items():
+        item.sort()
     return labels
     # print(label for label in labels[:10])
 
@@ -106,11 +114,12 @@ def unit_test(labels):
 
 
 def construct_dataset(file_path, labels, w_to_ix):
-    with open(data_root + '/origin_data/mentions2/2018_01_24/mentions.csv', 'r') as f:
-        lines = f.readlines()[1:]
+    # with open(data_root + '/origin_data/mentions2/2018_01_24/mentions.csv', 'r') as f:
+    with open(file_path, 'r') as f:
+        lines = f.readlines()
 
     rel_to_ix = defaultdict(set_default)
-    en_to_rel = defaultdict(set_default)
+    rel_to_ix['NA'] = 0
     mentions = defaultdict(list)
 
     # count = 0
@@ -128,7 +137,8 @@ def construct_dataset(file_path, labels, w_to_ix):
         #   swap in case en1 and en2 's order may differ
         if labels[(en2, en1)]:
             en1, en2 = en2, en1
-        tmp = time_signature('_'.join([year, month, day]), node_type='mention')
+        tmp = time_signature("-".join([year, month, day]), node_type='mention')
+        pdb.set_trace()
         tag = check_relation(labels[(en1, en2)], tmp)
         if rel_to_ix[tag] == None:
             rel_to_ix[tag] = len(rel_to_ix) - 1
@@ -143,6 +153,7 @@ def construct_dataset(file_path, labels, w_to_ix):
     # keep mentions sorted
     for key, item in mentions.items():
         item.sort()
+    print('Finish create labels!')
 
     # save intermediate results
     with open("/data/yanjianhao/nlp/torch/torch_NRE/origin_data/relaton_to_ix.txt", 'w') as f:
@@ -151,17 +162,28 @@ def construct_dataset(file_path, labels, w_to_ix):
             lines.append(str(key) + " " + str(value) + "\n")
         f.writelines(lines)
 
-    with open("/data/yanjianhao/nlp/torch/torch_NRE/origin_data/mentions_train.dat", 'w') as fout:
-        pickle.dump(mentions, fout, protocol=2)
+    with open("/data/yanjianhao/nlp/torch/torch_NRE/origin_data/mentions_train.dat", 'wb') as fout:
+        pickle.dump(mentions, fout)
+
+    print('Finish save intermediate results! ')
+    # pdb.set_trace()
     return mentions, rel_to_ix
 
+
+def normalizeString(s):
+    # s = unicodeToAscii(s.lower().strip())
+    s = re.sub(r"([.!?])", r" \1", s)
+    s = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
+    return s
+
+
 def tokenization(sent):
+    # sent = normalizeString(sent)
     sent = nlp(sent)
     w = []
     for word in sent:
         w.append(word.text)
     return " ".join(w)
-
 
 
 def separate_datasets(labels):
@@ -183,13 +205,15 @@ def separate_datasets(labels):
         rel, en1, en2, pos1, pos2 = line[1:6]
         year, month, day = line[6:9]
         sent = line[9]
-        # extract all infos from train.txt
+        # extract all infos frqom train.txt
 
         if labels[(en2, en1)]:
             en1, en2 = en2, en1
         mentions_count[(en1, en2)] += 1
-        l = tokenization(l)
-        mentions[(en1, en2)].append(l)
+        # l = tokenization(sent)
+        # mentions[(en1, en2)].append(l)
+        line[9] = tokenization(line[9])
+        mentions[(en1, en2)].append(",".join(line))
 
     tmp = list(mentions.keys())
     # random.shuffle is in-place operation
@@ -201,7 +225,7 @@ def separate_datasets(labels):
     for i in train:
         sum += mentions_count[i]
     print('There are %d mentions sentence in train!'%sum)
-
+++++++++++++++
     train_sents = []
     test_sents = []
     for i in train:

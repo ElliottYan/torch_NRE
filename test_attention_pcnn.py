@@ -16,7 +16,6 @@ from dataset import Dataset
 from dataset import collate_fn
 import numpy as np
 
-model
 test_data = Dataset(root, train_test='test')
 test_loader = data.DataLoader(datasets, batch_size=batch_size, shuffle=True, pin_memory=True, collate_fn=collate_fn)
 model.eval()

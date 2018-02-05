@@ -1,6 +1,9 @@
+import pdb
+
 class time_signature(object):
     def __init__(self, time, relation='NA', node_type='start'):
-        self.time = extract(time)
+        time = extract(time)
+        self.time = time
         #       in each time point, the relation is a tuple indicates its before and after relationships
         self.relation = relation
         self.type = node_type
@@ -14,22 +17,30 @@ class time_signature(object):
 
     #   less than
     def __lt__(self, x):
+
         if self.time == x.time:
-            a = {'start': 0, 'mention': 1, 'end': 2}
-            #           start and end point in same time
-            if self.relation != x.relation:
-                a = {'end': 0, 'start': 1, 'mention': 2}
+            if x.type == "mention":
+                a = {'start': 0, 'mention':1, 'end': 2}
+            else:
+                a = {'start': 0, 'end': 1}
+                #           start and end point in same time
+                if self.relation != x.relation:
+                    a = {'end': 0, 'start': 1}
             return a[self.type] < a[x.type]
         return self.time < x.time
 
 
 def extract(time):
     if time is None:
+        pdb.set_trace()
         return (None, None, None)
-    year = int(time[:4])
-    month = int(time[5:7])
-    day = int(time[8:])
-    return year, month, day
+    t = time.split('-')
+    try:
+        tp = tuple(int(time) for time in t[-3:])
+    except:
+        pdb.set_trace()
+        tp = None
+    return tp
 
 
 class Mention(object):

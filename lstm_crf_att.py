@@ -15,7 +15,7 @@ torch.manual_seed(1)
 
 
 root = '/data/yanjianhao/nlp/torch/torch_NRE/data/'
-datasets = Temporal_Data(root)
+
 
 class Lstm_crf_att(nn.Module):
     def __init__(self, n_rel=53 , vocab_size=114043, word_embed_size=50, pre_word_embeds=None, position_embedding=True):
@@ -65,9 +65,13 @@ class Lstm_crf_att(nn.Module):
 
 
     def forward(self, x, labels):
+        # batch of sentences
+        # list of cnn outputs
         s = self._create_features_for_bag(x, labels=labels)
+
         pdb.set_trace()
-        nn.utils.rnn.pad_packed_sequence(s, batch_first=True)
+
+        # nn.utils.rnn.pad_packed_sequence(s, batch_first=True)
         return
 
 
@@ -125,15 +129,16 @@ class Lstm_crf_att(nn.Module):
                 feature = F.pad(feature, (0, 0, 0, max_len - feature.size()[2]))
                 features.append(feature)
 
-            # pdb.set_trace()
+            # features -> word_embed + ps_embed : for each bag
+            # each feature in features are (1, out_c) size
             features = torch.cat(features, dim=0)
             # fix dims for features
             features = self.relu(self.conv(features).squeeze(3))
             # no padding in conv
             pdb.set_trace()
             features = F.max_pool1d(features, max_len - 2).squeeze(2)
+            batch_features.append(F.pad(features, (0, 0, 0, max_bag_len - features.size()[2])))
 
-            batch_features.append(F.pad(features))
 
         return batch_features
 
@@ -157,3 +162,27 @@ class Lstm_crf_att(nn.Module):
         return torch.cat([pf1, pf2], dim=1)
 
 
+def train():
+    datasets = Temporal_Data(root)
+    loader = data.DataLoader(datasets, batch_size=batch_size, shuffle=True, pin_memory=True, collate_fn=collate_fn)
+    word_embed = datasets.vecs
+    model = Lstm_crf_att(pre_word_embeds=word_embed)
+    if torch.cuda.is_available():
+        model = model.cuda()
+
+
+    for batch_ix ,(bags, label) in loader:
+        out = model.forward(bags, labels)
+
+
+
+
+
+
+
+def main():
+    train()
+
+
+if __name__ == "__main__":
+    main()
