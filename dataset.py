@@ -174,7 +174,6 @@ def collate_fn_temporal(data):
     return
 
 
-
 class Temporal_Data(data.Dataset):
     def __init__(self, root, train_test='train', transform=None, position_embed=True):
         if train_test == 'train':

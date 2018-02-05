@@ -173,7 +173,7 @@ def construct_dataset(file_path, labels, w_to_ix):
 def normalizeString(s):
     # s = unicodeToAscii(s.lower().strip())
     s = re.sub(r"([.!?])", r" \1", s)
-    s = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
+    s = re.sub(r"[^a-zA-Z.!?0-9]+", r" ", s)
     return s
 
 
@@ -187,7 +187,7 @@ def tokenization(sent):
 
 
 def separate_datasets(labels):
-    # need separation from train to test
+    # need +ion from train to test
 
     with open(data_root + '/origin_data/mentions2/2018_01_24/mentions.csv', 'r') as f:
         lines = f.readlines()[1:]
@@ -212,7 +212,7 @@ def separate_datasets(labels):
         mentions_count[(en1, en2)] += 1
         # l = tokenization(sent)
         # mentions[(en1, en2)].append(l)
-        line[9] = tokenization(line[9])
+        line[9] = tokenization(sent)
         mentions[(en1, en2)].append(",".join(line))
 
     tmp = list(mentions.keys())
@@ -225,7 +225,6 @@ def separate_datasets(labels):
     for i in train:
         sum += mentions_count[i]
     print('There are %d mentions sentence in train!'%sum)
-++++++++++++++
     train_sents = []
     test_sents = []
     for i in train:
